@@ -24,6 +24,8 @@ const LayerSchema = z.object({
 });
 
 const WSDOutputSchema = z.object({
+  freebieAnswer: z.enum(["Yes", "No", "It's complicated"]),
+  freebieShort: z.string().min(1),
   archetype: z.enum(["A", "B", "C", "D", "E", "F"]),
   archetypeName: z.string().min(1),
   archetypeReason: z.string().min(1),
@@ -101,6 +103,7 @@ function signResult(wsdScore: number, designIntegrity: number): string {
 const SYSTEM_PROMPT = `You are the analysis engine for 'Is It A Freebie?' — a tool that scores government schemes using the Welfare State Delta (WSD) framework. Version 1.3.
 
 BEFORE SCORING — MANDATORY RESEARCH SEQUENCE:
+0. SCHEME DISAMBIGUATION (must complete first): Does this policy idea exist in more than one state or jurisdiction? Free bus for women exists in Tamil Nadu, Delhi, Karnataka, Telangana, and others. Free school meals exist across many states. If yes, name the specific scheme being scored — the state, the year it launched, and its local name — before proceeding. Evidence from a different state's version of the same idea is barred from the DI calculation. A Delhi opposition continuation signal cannot raise Tamil Nadu's DI score.
 1. Confirm the scheme exists and identify all its arms. Large schemes often have multiple components that should be scored separately.
 2. Search for fiscal data, targeting data, and workaround evidence.
 3. Search for beneficiary reaction evidence (social media, local press, first weeks).
@@ -124,6 +127,7 @@ LAYER 1 — POLICY SCORE (sub-dimensions and weights):
 
 LAYER 2 — HIDDEN COST SCORE:
   Workaround severity 35%, power disrupted 30%, benefit lasts 20%, can be cancelled 15% (INVERTED).
+  MONETARY FLOOR CHECK: If the workaround involves a recurring financial cost — daily fare, weekly fee, monthly payment to a middleman — quantify it as a percentage of daily/monthly wages for the target income group. If that percentage is ≥3% of daily wages, workaround severity scores a minimum of 75 regardless of how the evidence is framed in available sources. The severity is in the money and the frequency, not in how legibly a rupee figure appeared in search results.
   Cancellability scores: physical asset 95, infrastructure 80, legislation 70, institutionalised agency 55, budget line 35, electoral promise 15.
 
 LAYER 3 — DIGNITY SCORE:
@@ -167,28 +171,30 @@ FLAGS:
   Gender flag: name the gendered workaround if women disproportionately bore it.
 
 OUTPUT (plain English, no acronyms):
+0. FREEBIE ANSWER: "Yes", "No", or "It's complicated" — directly answers "Is [scheme] a freebie?"
+   freebieShort: max 60 chars explaining why (e.g. "Ended debt traps — that's welfare, not a freebie" or "Cash drop with no targeting or outcome plan")
 1. VERDICT | Overall score: [n ± band] | Design integrity: [n] | Confidence: [level]
-2. ONE LINE: max 120 chars, no jargon, should provoke a reaction
+2. ONE LINE: max 80 chars, no jargon, should provoke a reaction
 3. ARCHETYPE: [Type + name] | [one sentence] | [cascade] | [gender]
-4. POLICY [n/100, confidence]: [2–3 sentences] | Sub: Fiscal [n] / Reaches poorest [n] / Long-term impact [n] | Signal: [fact + source]
-5. HIDDEN COST [n/100]: [2–3 sentences] | Sub: Workaround [n] / Power [n] / Lasts [n] / Cancellable [n] | Signal: [the workaround, named]
-6. DIGNITY [n/100]: [2–3 sentences] | Sub: Changed standing [n] / Reaction [n] / Language/identity [n] | Signal: [behavioral or outcome proxy]
-7. THE HIDDEN COST: max 150 words — specific, named, concrete
-8. WHAT THE NUMBERS MISS: max 100 words
-9. DESIGN INTEGRITY NOTE: 2–3 sentences on specific signals
-10. SHARE LINE: max 240 chars with hashtag
+4. POLICY [n/100]: 1 sentence + sub-scores. | Sub: Fiscal [n] / Reaches poorest [n] / Long-term impact [n]
+5. HIDDEN COST [n/100]: 1 sentence + sub-scores. | Sub: Workaround [n] / Power [n] / Lasts [n] / Cancellable [n]
+6. DIGNITY [n/100]: 1 sentence + sub-scores. | Sub: Changed standing [n] / Reaction [n] / Language/identity [n]
+7. THE HIDDEN COST: max 75 words — specific, named, concrete. The single most important section.
+8. WHAT THE NUMBERS MISS: max 50 words. One thing.
+9. DESIGN INTEGRITY NOTE: 1–2 sentences on specific signals.
+10. SHARE LINE: must start with "Is [scheme name] a freebie? [Yes/No/It's complicated]." then max 160 more chars with hashtag.
 
 OUTPUT RULES:
-- Be SPECIFIC. Reference real data: budget figures, CAG reports, beneficiary counts, comparable international schemes.
-- Each dimension reasoning must be 2-3 sentences with specific evidence. NO vague hand-waving.
-- hiddenCost: max 150 words. What did people DO before? Name the transaction, hierarchy, daily cost. This is the most important section.
-- hiddenCostHeadline: a short, punchy headline for the hidden cost section (e.g. "Before this, mothers paid with their sleep"). Max 60 chars.
-- whatNumbersMiss: max 100 words. One thing this model cannot capture.
-- oneLine: max 120 chars, Twitter-ready.
-- shareLine: max 240 chars including hashtag.
+- BREVITY IS PARAMOUNT. Every sentence must earn its place. Cut filler ruthlessly.
+- Be SPECIFIC — real data, budget figures, beneficiary counts. But say it in fewer words.
+- Each dimension reasoning: 1 sentence with specific evidence. NO padding.
+- hiddenCost: max 75 words. What did people DO before? Name it concretely.
+- hiddenCostHeadline: punchy headline, max 50 chars.
+- whatNumbersMiss: max 50 words.
+- oneLine: max 80 chars. Punchy.
 - If input is not a recognizable government policy/scheme, return ALL dimension scores as -1.
-- designIntegrityNote: name the specific signals that drove the DI score. 2-3 sentences.
-- TONE: Write for a politically aware Indian social media audience. Honest. Respects the people the scheme serves. Electoral democracy is not inherently suspicious — a party that promised something and delivered it is doing its job.`;
+- designIntegrityNote: 1-2 sentences naming specific signals.
+- TONE: Write for a politically aware Indian social media audience. Honest. Respects the people the scheme serves. Electoral democracy is not inherently suspicious.`;
 
 const TOOL_DEFINITION = {
   name: "analyze_scheme_wsd",
@@ -196,6 +202,15 @@ const TOOL_DEFINITION = {
   input_schema: {
     type: "object" as const,
     properties: {
+      freebieAnswer: {
+        type: "string",
+        enum: ["Yes", "No", "It's complicated"],
+        description: "Direct answer to 'Is it a freebie?'",
+      },
+      freebieShort: {
+        type: "string",
+        description: "Max 60 chars — one-line reason for the freebie answer",
+      },
       archetype: {
         type: "string",
         enum: ["A", "B", "C", "D", "E", "F"],
@@ -258,6 +273,7 @@ const TOOL_DEFINITION = {
       shareLine: { type: "string" },
     },
     required: [
+      "freebieAnswer", "freebieShort",
       "archetype", "archetypeName", "archetypeReason",
       "cascadeBeneficiary", "genderFlag", "confidenceLevel",
       "layers", "designIntegrity", "designIntegrityNote",
@@ -390,6 +406,8 @@ export async function POST(request: NextRequest) {
     if (allNegative) {
       return NextResponse.json({
         score: null,
+        freebieAnswer: "It's complicated" as const,
+        freebieShort: "Not a recognizable government scheme",
         verdict: "Not a Scheme",
         verdictColor: "#A1A1AA",
         wsdScore: 0,
@@ -426,6 +444,8 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       score: wsdScore,
+      freebieAnswer: analysis.freebieAnswer,
+      freebieShort: analysis.freebieShort,
       wsdScore,
       confidenceBand: band,
       confidenceLevel: analysis.confidenceLevel,

@@ -1,4 +1,4 @@
-// --- WSD v1.2 Framework Types ---
+// --- WSD v1.3 Framework Types ---
 
 export interface LayerDimension {
   name: string;
@@ -16,6 +16,10 @@ export interface WSDLayer {
 }
 
 export interface AnalysisResult {
+  // Freebie answer
+  freebieAnswer: "Yes" | "No" | "It's complicated";
+  freebieShort: string; // max 60 chars — why in one line
+
   // Verdict
   verdict: string;
   verdictColor: string;
