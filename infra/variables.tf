@@ -45,6 +45,11 @@ variable "share_secret" {
   sensitive   = true
 }
 
+variable "amplify_service_role_arn" {
+  description = "ARN of the manually-created IAM role for Amplify (with Bedrock permissions)"
+  type        = string
+}
+
 variable "bedrock_model" {
   description = "Bedrock model ID"
   type        = string

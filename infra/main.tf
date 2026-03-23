@@ -15,44 +15,21 @@ terraform {
 
 provider "aws" {
   region = var.aws_region
+
+  default_tags {
+    tags = {
+      project = "isitafreebie"
+    }
+  }
 }
 
 provider "cloudflare" {
   api_token = var.cloudflare_api_token
 }
 
-data "aws_caller_identity" "current" {}
-
-# --- IAM Role for Amplify to call Bedrock ---
-
-resource "aws_iam_role" "amplify_bedrock" {
-  name = "${var.app_name}-amplify-bedrock"
-
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Effect = "Allow"
-      Principal = {
-        Service = "amplify.amazonaws.com"
-      }
-      Action = "sts:AssumeRole"
-    }]
-  })
-}
-
-resource "aws_iam_role_policy" "bedrock_invoke" {
-  name = "${var.app_name}-bedrock-invoke"
-  role = aws_iam_role.amplify_bedrock.id
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Effect   = "Allow"
-      Action   = "bedrock:InvokeModel"
-      Resource = "arn:aws:bedrock:${var.aws_region}::foundation-model/${var.bedrock_model}"
-    }]
-  })
-}
+# --- IAM Role (manually created, not Terraform-managed) ---
+# arn:aws:iam::725822497948:role/AmplifyConsoleSvcRole
+# Permissions: AdministratorAccess-Amplify + inline Bedrock InvokeModel
 
 # --- Amplify App ---
 
@@ -61,7 +38,7 @@ resource "aws_amplify_app" "app" {
   repository = var.github_repository
 
   access_token         = var.github_token
-  iam_service_role_arn = aws_iam_role.amplify_bedrock.arn
+  iam_service_role_arn = var.amplify_service_role_arn
 
   platform = "WEB_COMPUTE"
 
@@ -163,6 +140,11 @@ resource "aws_budgets_budget" "monthly" {
   limit_amount = "5"
   limit_unit   = "USD"
   time_unit    = "MONTHLY"
+
+  cost_filter {
+    name   = "TagKeyValue"
+    values = ["user:project$isitafreebie"]
+  }
 
   notification {
     comparison_operator        = "GREATER_THAN"
