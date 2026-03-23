@@ -15,7 +15,7 @@ output "custom_domain" {
 
 output "iam_role_arn" {
   description = "IAM role ARN used by Amplify for Bedrock access"
-  value       = aws_iam_role.amplify_bedrock.arn
+  value       = var.amplify_service_role_arn
 }
 
 output "dns_note" {
