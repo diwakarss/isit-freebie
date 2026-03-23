@@ -1,0 +1,7 @@
+aws_region           = "us-east-1"
+github_repository    = "https://github.com/YOUR_ORG/seville"
+github_branch        = "master"
+github_token         = "ghp_xxxxxxxxxxxxxxxxxxxx"
+share_secret         = "your-random-string-32-chars-minimum-here"
+cloudflare_api_token = "your-cloudflare-api-token"
+cloudflare_zone_id   = "your-zone-id-from-cloudflare-dashboard"
