@@ -86,7 +86,7 @@ resource "aws_amplify_app" "app" {
   YAML
 
   environment_variables = {
-    AWS_REGION                = var.aws_region
+    BEDROCK_REGION            = var.aws_region
     BEDROCK_MODEL             = var.bedrock_model
     SHARE_SECRET              = var.share_secret
     AMPLIFY_MONOREPO_APP_ROOT = "."
@@ -152,5 +152,31 @@ resource "cloudflare_record" "amplify_verify" {
     # The actual verification record name comes from Amplify after domain association
     # You may need to update this after first apply — check Amplify console for exact values
     ignore_changes = [name, content]
+  }
+}
+
+# --- Budget ---
+
+resource "aws_budgets_budget" "monthly" {
+  name         = "${var.app_name}-monthly-budget"
+  budget_type  = "COST"
+  limit_amount = "5"
+  limit_unit   = "USD"
+  time_unit    = "MONTHLY"
+
+  notification {
+    comparison_operator        = "GREATER_THAN"
+    threshold                  = 80
+    threshold_type             = "PERCENTAGE"
+    notification_type          = "ACTUAL"
+    subscriber_email_addresses = [var.budget_alert_email]
+  }
+
+  notification {
+    comparison_operator        = "GREATER_THAN"
+    threshold                  = 100
+    threshold_type             = "PERCENTAGE"
+    notification_type          = "ACTUAL"
+    subscriber_email_addresses = [var.budget_alert_email]
   }
 }

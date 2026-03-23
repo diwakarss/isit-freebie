@@ -287,7 +287,7 @@ const BEDROCK_MODEL = process.env.BEDROCK_MODEL || "us.anthropic.claude-sonnet-4
 
 async function callClaude(scheme: string): Promise<z.infer<typeof WSDOutputSchema>> {
   const client = new AnthropicBedrock({
-    awsRegion: process.env.AWS_REGION || "us-east-1",
+    awsRegion: process.env.BEDROCK_REGION || process.env.AWS_REGION || "us-east-1",
   });
 
   for (let attempt = 0; attempt < 2; attempt++) {
