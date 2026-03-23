@@ -61,3 +61,8 @@ variable "cloudflare_zone_id" {
   description = "Cloudflare zone ID for jdlabs.top"
   type        = string
 }
+
+variable "budget_alert_email" {
+  description = "Email for budget alerts"
+  type        = string
+}
