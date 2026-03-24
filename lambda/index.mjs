@@ -77,38 +77,26 @@ function checkRateLimit(ip) {
   return entry.count <= RATE_LIMIT_PER_IP;
 }
 
-// --- Request authentication (HMAC timestamp token) ---
+// --- Cloudflare Turnstile verification ---
 
-const REQUEST_TOKEN_SECRET = process.env.SHARE_SECRET || "";
-const TOKEN_MAX_AGE_MS = 300_000; // 5 minutes
+const TURNSTILE_SECRET = process.env.TURNSTILE_SECRET || "";
 
-function verifyRequestToken(token) {
-  if (!REQUEST_TOKEN_SECRET || !token) return false;
+async function verifyTurnstile(token, ip) {
+  if (!TURNSTILE_SECRET) return true; // Skip in dev when no secret configured
+  if (!token) return false;
+
   try {
-    // Token format: timestamp.hmac
-    const [tsStr, sig] = token.split(".");
-    if (!tsStr || !sig) return false;
-
-    const ts = parseInt(tsStr, 10);
-    if (isNaN(ts)) return false;
-
-    // Check timestamp freshness
-    const age = Date.now() - ts;
-    if (age < 0 || age > TOKEN_MAX_AGE_MS) return false;
-
-    // Verify HMAC
-    const expected = createHmac("sha256", REQUEST_TOKEN_SECRET)
-      .update(tsStr)
-      .digest("hex")
-      .slice(0, 16);
-
-    // Constant-time comparison
-    if (sig.length !== expected.length) return false;
-    let mismatch = 0;
-    for (let i = 0; i < sig.length; i++) {
-      mismatch |= sig.charCodeAt(i) ^ expected.charCodeAt(i);
-    }
-    return mismatch === 0;
+    const res = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        secret: TURNSTILE_SECRET,
+        response: token,
+        remoteip: ip,
+      }),
+    });
+    const data = await res.json();
+    return data.success === true;
   } catch {
     return false;
   }
@@ -448,7 +436,7 @@ function getCorsHeaders(requestOrigin) {
   return {
     "Access-Control-Allow-Origin": origin,
     "Access-Control-Allow-Methods": "POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, X-Request-Token",
+    "Access-Control-Allow-Headers": "Content-Type",
     "Access-Control-Max-Age": "86400",
   };
 }
@@ -486,16 +474,6 @@ export async function handler(event) {
     };
   }
 
-  // Verify request token (HMAC-signed timestamp from frontend)
-  const requestToken = event.headers?.["x-request-token"] || "";
-  if (!verifyRequestToken(requestToken)) {
-    return {
-      statusCode: 403,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-      body: JSON.stringify({ error: "invalid_token" }),
-    };
-  }
-
   // Rate limiting using source IP (Lambda Function URL provides real sourceIp)
   const ip = event.requestContext?.http?.sourceIp || "unknown";
 
@@ -525,6 +503,16 @@ export async function handler(event) {
       statusCode: 400,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
       body: JSON.stringify({ error: "Invalid JSON" }),
+    };
+  }
+
+  // Verify Cloudflare Turnstile token (server-side, can't be faked)
+  const turnstileToken = body.turnstileToken || "";
+  if (TURNSTILE_SECRET && !await verifyTurnstile(turnstileToken, ip)) {
+    return {
+      statusCode: 403,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+      body: JSON.stringify({ error: "captcha_failed" }),
     };
   }
 
