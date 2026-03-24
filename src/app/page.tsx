@@ -7,6 +7,26 @@ import AnalyzeAnimation from "@/components/AnalyzeAnimation";
 import VerdictCard from "@/components/VerdictCard";
 import type { AnalysisResult, AppState } from "@/types";
 
+// Generate HMAC request token (timestamp.signature) to authenticate API calls
+async function generateRequestToken(): Promise<string> {
+  const secret = process.env.NEXT_PUBLIC_REQUEST_TOKEN_SECRET || "";
+  if (!secret) return "";
+  const ts = Date.now().toString();
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(ts));
+  const hex = Array.from(new Uint8Array(sig))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("")
+    .slice(0, 16);
+  return `${ts}.${hex}`;
+}
+
 function usePrefersReducedMotion() {
   const [prefersReduced, setPrefersReduced] = useState(false);
   useEffect(() => {
@@ -68,9 +88,13 @@ export default function Home() {
 
     try {
       const apiUrl = process.env.NEXT_PUBLIC_ANALYZE_URL || "/api/analyze";
+      const token = await generateRequestToken();
       const response = await fetch(apiUrl, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { "X-Request-Token": token } : {}),
+        },
         body: JSON.stringify({ scheme: schemeText.trim() }),
         signal: AbortSignal.timeout(120_000),
       });
