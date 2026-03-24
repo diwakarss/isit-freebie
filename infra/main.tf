@@ -76,7 +76,7 @@ resource "aws_amplify_app" "app" {
     SHARE_SECRET                     = var.share_secret
     BEDROCK_ACCESS_KEY_ID            = var.bedrock_access_key_id
     BEDROCK_SECRET_ACCESS_KEY        = var.bedrock_secret_access_key
-    NEXT_PUBLIC_REQUEST_TOKEN_SECRET = var.share_secret
+    NEXT_PUBLIC_TURNSTILE_SITE_KEY   = var.turnstile_site_key
     NEXT_PUBLIC_ANALYZE_URL          = aws_lambda_function_url.analyze.function_url
   }
 
@@ -222,6 +222,7 @@ resource "aws_lambda_function" "analyze" {
       SHARE_SECRET              = var.share_secret
       BEDROCK_ACCESS_KEY_ID     = var.bedrock_access_key_id
       BEDROCK_SECRET_ACCESS_KEY = var.bedrock_secret_access_key
+      TURNSTILE_SECRET          = var.turnstile_secret
     }
   }
 
