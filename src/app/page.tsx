@@ -90,7 +90,9 @@ export default function Home() {
         return;
       }
 
-      const data: AnalysisResult = await response.json();
+      // Streaming response: strip heartbeat newlines, parse trailing JSON
+      const raw = await response.text();
+      const data: AnalysisResult = JSON.parse(raw.trim());
 
       if (data.verdict === "Not a Scheme") {
         setResult(data);
