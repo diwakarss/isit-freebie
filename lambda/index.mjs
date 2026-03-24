@@ -41,21 +41,77 @@ const WSDOutputSchema = z.object({
   shareLine: z.string().min(1),
 });
 
-// --- Rate limiting ---
+// --- Rate limiting (per-instance, supplemented by Lambda concurrency cap) ---
 
 const rateLimitMap = new Map();
-const RATE_LIMIT = 10;
-const RATE_WINDOW_MS = 60_000;
+const RATE_LIMIT_PER_IP = 5;       // 5 requests per IP per window
+const RATE_WINDOW_MS = 60_000;     // 1 minute window
+const GLOBAL_RATE_LIMIT = 30;      // 30 total requests per instance per window
+let globalRequestCount = 0;
+let globalWindowReset = Date.now() + RATE_WINDOW_MS;
 
 function checkRateLimit(ip) {
   const now = Date.now();
+
+  // Global rate limit across all IPs (per Lambda instance)
+  if (now > globalWindowReset) {
+    globalRequestCount = 0;
+    globalWindowReset = now + RATE_WINDOW_MS;
+  }
+  globalRequestCount++;
+  if (globalRequestCount > GLOBAL_RATE_LIMIT) return false;
+
+  // Per-IP rate limit
   const entry = rateLimitMap.get(ip);
   if (!entry || now > entry.resetAt) {
+    // Evict old entries to prevent memory growth
+    if (rateLimitMap.size > 1000) {
+      for (const [key, val] of rateLimitMap) {
+        if (now > val.resetAt) rateLimitMap.delete(key);
+      }
+    }
     rateLimitMap.set(ip, { count: 1, resetAt: now + RATE_WINDOW_MS });
     return true;
   }
   entry.count++;
-  return entry.count <= RATE_LIMIT;
+  return entry.count <= RATE_LIMIT_PER_IP;
+}
+
+// --- Request authentication (HMAC timestamp token) ---
+
+const REQUEST_TOKEN_SECRET = process.env.SHARE_SECRET || "";
+const TOKEN_MAX_AGE_MS = 300_000; // 5 minutes
+
+function verifyRequestToken(token) {
+  if (!REQUEST_TOKEN_SECRET || !token) return false;
+  try {
+    // Token format: timestamp.hmac
+    const [tsStr, sig] = token.split(".");
+    if (!tsStr || !sig) return false;
+
+    const ts = parseInt(tsStr, 10);
+    if (isNaN(ts)) return false;
+
+    // Check timestamp freshness
+    const age = Date.now() - ts;
+    if (age < 0 || age > TOKEN_MAX_AGE_MS) return false;
+
+    // Verify HMAC
+    const expected = createHmac("sha256", REQUEST_TOKEN_SECRET)
+      .update(tsStr)
+      .digest("hex")
+      .slice(0, 16);
+
+    // Constant-time comparison
+    if (sig.length !== expected.length) return false;
+    let mismatch = 0;
+    for (let i = 0; i < sig.length; i++) {
+      mismatch |= sig.charCodeAt(i) ^ expected.charCodeAt(i);
+    }
+    return mismatch === 0;
+  } catch {
+    return false;
+  }
 }
 
 // --- Verdict logic (v1.3 — 6 verdicts, WSD × DI) ---
@@ -392,7 +448,7 @@ function getCorsHeaders(requestOrigin) {
   return {
     "Access-Control-Allow-Origin": origin,
     "Access-Control-Allow-Methods": "POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type",
+    "Access-Control-Allow-Headers": "Content-Type, X-Request-Token",
     "Access-Control-Max-Age": "86400",
   };
 }
@@ -421,11 +477,27 @@ export async function handler(event) {
     };
   }
 
-  // Rate limiting using source IP
-  const ip =
-    event.requestContext?.http?.sourceIp ||
-    event.headers?.["x-forwarded-for"]?.split(",")[0]?.trim() ||
-    "unknown";
+  // Server-side origin enforcement (CORS is browser-only, curl bypasses it)
+  if (requestOrigin && !ALLOWED_ORIGINS.includes(requestOrigin)) {
+    return {
+      statusCode: 403,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ error: "forbidden" }),
+    };
+  }
+
+  // Verify request token (HMAC-signed timestamp from frontend)
+  const requestToken = event.headers?.["x-request-token"] || "";
+  if (!verifyRequestToken(requestToken)) {
+    return {
+      statusCode: 403,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+      body: JSON.stringify({ error: "invalid_token" }),
+    };
+  }
+
+  // Rate limiting using source IP (Lambda Function URL provides real sourceIp)
+  const ip = event.requestContext?.http?.sourceIp || "unknown";
 
   if (!checkRateLimit(ip)) {
     return {
@@ -435,10 +507,19 @@ export async function handler(event) {
     };
   }
 
-  // Parse body
+  // Parse body with size check
+  const rawBody = event.body || "{}";
+  if (rawBody.length > 2000) {
+    return {
+      statusCode: 413,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+      body: JSON.stringify({ error: "Request too large" }),
+    };
+  }
+
   let body;
   try {
-    body = JSON.parse(event.body || "{}");
+    body = JSON.parse(rawBody);
   } catch {
     return {
       statusCode: 400,

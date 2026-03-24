@@ -71,10 +71,13 @@ resource "aws_amplify_app" "app" {
   YAML
 
   environment_variables = {
-    BEDROCK_REGION            = var.aws_region
-    BEDROCK_MODEL             = var.bedrock_model
-    SHARE_SECRET              = var.share_secret
-    AMPLIFY_MONOREPO_APP_ROOT = "."
+    BEDROCK_REGION                   = var.aws_region
+    BEDROCK_MODEL                    = var.bedrock_model
+    SHARE_SECRET                     = var.share_secret
+    BEDROCK_ACCESS_KEY_ID            = var.bedrock_access_key_id
+    BEDROCK_SECRET_ACCESS_KEY        = var.bedrock_secret_access_key
+    NEXT_PUBLIC_REQUEST_TOKEN_SECRET = var.share_secret
+    NEXT_PUBLIC_ANALYZE_URL          = aws_lambda_function_url.analyze.function_url
   }
 
   custom_rule {
@@ -94,6 +97,13 @@ resource "aws_amplify_branch" "main" {
   stage     = "PRODUCTION"
 
   enable_auto_build = true
+
+  # Env vars inherited from app level — branch-level overrides only if needed
+  environment_variables = {}
+
+  lifecycle {
+    ignore_changes = [environment_variables]
+  }
 }
 
 # --- Amplify Custom Domain ---
@@ -168,8 +178,8 @@ resource "aws_iam_role_policy" "lambda_bedrock" {
     Version = "2012-10-17"
     Statement = [{
       Effect   = "Allow"
-      Action   = ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"]
-      Resource = "*"
+      Action   = ["bedrock:InvokeModel"]
+      Resource = "arn:aws:bedrock:${var.aws_region}::foundation-model/${var.bedrock_model}"
     }]
   })
 }
@@ -202,6 +212,9 @@ resource "aws_lambda_function" "analyze" {
   timeout          = 120
   memory_size      = 256
 
+  # Hard cap: max 5 concurrent Bedrock calls (prevents runaway spend)
+  reserved_concurrent_executions = 5
+
   environment {
     variables = {
       BEDROCK_MODEL             = var.bedrock_model
@@ -219,16 +232,8 @@ resource "aws_lambda_function_url" "analyze" {
   function_name      = aws_lambda_function.analyze.function_name
   authorization_type = "NONE"
 
-  cors {
-    allow_origins = [
-      "https://isitafreebie.jdlabs.top",
-      "https://master.d18nzakymiic5a.amplifyapp.com",
-      "http://localhost:3456",
-    ]
-    allow_methods = ["*"]
-    allow_headers = ["content-type"]
-    max_age       = 86400
-  }
+  # CORS handled by Lambda code — do NOT add cors block here
+  # (duplicates headers and causes browser rejection)
 }
 
 # --- Budget ---
@@ -243,6 +248,44 @@ resource "aws_budgets_budget" "monthly" {
   cost_filter {
     name   = "TagKeyValue"
     values = ["user:project$isitafreebie"]
+  }
+
+  notification {
+    comparison_operator        = "GREATER_THAN"
+    threshold                  = 80
+    threshold_type             = "PERCENTAGE"
+    notification_type          = "ACTUAL"
+    subscriber_email_addresses = [var.budget_alert_email]
+  }
+
+  notification {
+    comparison_operator        = "GREATER_THAN"
+    threshold                  = 100
+    threshold_type             = "PERCENTAGE"
+    notification_type          = "ACTUAL"
+    subscriber_email_addresses = [var.budget_alert_email]
+  }
+}
+
+# Bedrock usage budget — Bedrock costs are per-model usage, not tagged resources
+resource "aws_budgets_budget" "bedrock" {
+  name         = "${var.app_name}-bedrock-budget"
+  budget_type  = "COST"
+  limit_amount = "5"
+  limit_unit   = "USD"
+  time_unit    = "MONTHLY"
+
+  cost_filter {
+    name   = "Service"
+    values = ["Amazon Bedrock"]
+  }
+
+  notification {
+    comparison_operator        = "GREATER_THAN"
+    threshold                  = 50
+    threshold_type             = "PERCENTAGE"
+    notification_type          = "ACTUAL"
+    subscriber_email_addresses = [var.budget_alert_email]
   }
 
   notification {
