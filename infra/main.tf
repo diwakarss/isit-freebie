@@ -10,6 +10,14 @@ terraform {
       source  = "cloudflare/cloudflare"
       version = "~> 4.0"
     }
+    null = {
+      source  = "hashicorp/null"
+      version = "~> 3.0"
+    }
+    local = {
+      source  = "hashicorp/local"
+      version = "~> 2.0"
+    }
   }
 }
 
@@ -129,6 +137,97 @@ resource "cloudflare_record" "amplify_verify" {
     # The actual verification record name comes from Amplify after domain association
     # You may need to update this after first apply — check Amplify console for exact values
     ignore_changes = [name, content]
+  }
+}
+
+# --- Lambda for Analyze API (bypasses Amplify 30s timeout) ---
+
+resource "aws_iam_role" "lambda_analyze" {
+  name = "${var.app_name}-analyze-lambda"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Action = "sts:AssumeRole"
+      Effect = "Allow"
+      Principal = { Service = "lambda.amazonaws.com" }
+    }]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "lambda_basic" {
+  role       = aws_iam_role.lambda_analyze.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+}
+
+resource "aws_iam_role_policy" "lambda_bedrock" {
+  name = "bedrock-invoke"
+  role = aws_iam_role.lambda_analyze.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"]
+      Resource = "*"
+    }]
+  })
+}
+
+# Build Lambda zip
+resource "null_resource" "lambda_build" {
+  triggers = {
+    source_hash = filemd5("${path.module}/../lambda/index.mjs")
+    pkg_hash    = filemd5("${path.module}/../lambda/package.json")
+  }
+
+  provisioner "local-exec" {
+    working_dir = "${path.module}/../lambda"
+    command     = "npm ci --production && zip -r ${path.module}/lambda.zip index.mjs node_modules"
+  }
+}
+
+data "local_file" "lambda_zip" {
+  filename   = "${path.module}/lambda.zip"
+  depends_on = [null_resource.lambda_build]
+}
+
+resource "aws_lambda_function" "analyze" {
+  filename         = "${path.module}/lambda.zip"
+  source_code_hash = data.local_file.lambda_zip.content_base64sha256
+  function_name    = "${var.app_name}-analyze"
+  role             = aws_iam_role.lambda_analyze.arn
+  handler          = "index.handler"
+  runtime          = "nodejs20.x"
+  timeout          = 120
+  memory_size      = 256
+
+  environment {
+    variables = {
+      BEDROCK_MODEL             = var.bedrock_model
+      BEDROCK_REGION            = var.aws_region
+      SHARE_SECRET              = var.share_secret
+      BEDROCK_ACCESS_KEY_ID     = var.bedrock_access_key_id
+      BEDROCK_SECRET_ACCESS_KEY = var.bedrock_secret_access_key
+    }
+  }
+
+  depends_on = [null_resource.lambda_build]
+}
+
+resource "aws_lambda_function_url" "analyze" {
+  function_name      = aws_lambda_function.analyze.function_name
+  authorization_type = "NONE"
+
+  cors {
+    allow_origins = [
+      "https://isitafreebie.jdlabs.top",
+      "https://master.d18nzakymiic5a.amplifyapp.com",
+      "http://localhost:3456",
+    ]
+    allow_methods = ["*"]
+    allow_headers = ["content-type"]
+    max_age       = 86400
   }
 }
 

@@ -67,7 +67,8 @@ export default function Home() {
     const MINIMUM_ANIMATION_MS = prefersReduced ? 0 : 3500;
 
     try {
-      const response = await fetch("/api/analyze", {
+      const apiUrl = process.env.NEXT_PUBLIC_ANALYZE_URL || "/api/analyze";
+      const response = await fetch(apiUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ scheme: schemeText.trim() }),

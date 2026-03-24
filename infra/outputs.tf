@@ -22,3 +22,8 @@ output "dns_note" {
   description = "Important DNS note"
   value       = "Cloudflare proxy (orange cloud) must be OFF for isitafreebie CNAME — Amplify needs DNS-only for SSL verification"
 }
+
+output "analyze_api_url" {
+  description = "Lambda Function URL for the analyze API"
+  value       = aws_lambda_function_url.analyze.function_url
+}
