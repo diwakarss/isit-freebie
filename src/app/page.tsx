@@ -7,24 +7,48 @@ import AnalyzeAnimation from "@/components/AnalyzeAnimation";
 import VerdictCard from "@/components/VerdictCard";
 import type { AnalysisResult, AppState } from "@/types";
 
-// Generate HMAC request token (timestamp.signature) to authenticate API calls
-async function generateRequestToken(): Promise<string> {
-  const secret = process.env.NEXT_PUBLIC_REQUEST_TOKEN_SECRET || "";
-  if (!secret) return "";
-  const ts = Date.now().toString();
-  const key = await crypto.subtle.importKey(
-    "raw",
-    new TextEncoder().encode(secret),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"],
-  );
-  const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(ts));
-  const hex = Array.from(new Uint8Array(sig))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("")
-    .slice(0, 16);
-  return `${ts}.${hex}`;
+// Cloudflare Turnstile — invisible challenge
+const TURNSTILE_SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY || "0x4AAAAAACve0rOm6EAt0wdd";
+
+declare global {
+  interface Window {
+    turnstile?: {
+      render: (container: string | HTMLElement, options: Record<string, unknown>) => string;
+      reset: (widgetId: string) => void;
+      remove: (widgetId: string) => void;
+    };
+  }
+}
+
+function getTurnstileToken(): Promise<string> {
+  return new Promise((resolve, reject) => {
+    if (!window.turnstile) {
+      resolve(""); // Turnstile not loaded, skip (dev mode)
+      return;
+    }
+    // Create a hidden container for the invisible widget
+    const container = document.createElement("div");
+    container.style.display = "none";
+    document.body.appendChild(container);
+
+    const widgetId = window.turnstile.render(container, {
+      sitekey: TURNSTILE_SITE_KEY,
+      callback: (token: string) => {
+        window.turnstile?.remove(widgetId);
+        container.remove();
+        resolve(token);
+      },
+      "error-callback": () => {
+        container.remove();
+        reject(new Error("Turnstile challenge failed"));
+      },
+      "expired-callback": () => {
+        container.remove();
+        reject(new Error("Turnstile token expired"));
+      },
+      size: "invisible",
+    });
+  });
 }
 
 function usePrefersReducedMotion() {
@@ -88,14 +112,11 @@ export default function Home() {
 
     try {
       const apiUrl = process.env.NEXT_PUBLIC_ANALYZE_URL || "/api/analyze";
-      const token = await generateRequestToken();
+      const turnstileToken = await getTurnstileToken().catch(() => "");
       const response = await fetch(apiUrl, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(token ? { "X-Request-Token": token } : {}),
-        },
-        body: JSON.stringify({ scheme: schemeText.trim() }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scheme: schemeText.trim(), turnstileToken }),
         signal: AbortSignal.timeout(120_000),
       });
 
