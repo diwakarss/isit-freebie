@@ -286,9 +286,14 @@ const TOOL_DEFINITION = {
 const BEDROCK_MODEL = process.env.BEDROCK_MODEL || "us.anthropic.claude-sonnet-4-5-20250929-v1:0";
 
 async function callClaude(scheme: string): Promise<z.infer<typeof WSDOutputSchema>> {
-  const client = new AnthropicBedrock({
+  const clientOpts: Record<string, string> = {
     awsRegion: process.env.BEDROCK_REGION || process.env.AWS_REGION || "us-east-1",
-  });
+  };
+  if (process.env.BEDROCK_ACCESS_KEY_ID && process.env.BEDROCK_SECRET_ACCESS_KEY) {
+    clientOpts.awsAccessKey = process.env.BEDROCK_ACCESS_KEY_ID;
+    clientOpts.awsSecretKey = process.env.BEDROCK_SECRET_ACCESS_KEY;
+  }
+  const client = new AnthropicBedrock(clientOpts);
 
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
