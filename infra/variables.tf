@@ -83,3 +83,15 @@ variable "bedrock_secret_access_key" {
   type        = string
   sensitive   = true
 }
+
+variable "turnstile_site_key" {
+  description = "Cloudflare Turnstile site key (public)"
+  type        = string
+  default     = "0x4AAAAAACve0rOm6EAt0wdd"
+}
+
+variable "turnstile_secret" {
+  description = "Cloudflare Turnstile secret key (server-side verification)"
+  type        = string
+  sensitive   = true
+}
