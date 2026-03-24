@@ -21,12 +21,19 @@ declare global {
 }
 
 function getTurnstileToken(): Promise<string> {
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve) => {
     if (!window.turnstile) {
       resolve(""); // Turnstile not loaded, skip (dev mode)
       return;
     }
-    // Create a hidden container for the invisible widget
+
+    // Timeout: if Turnstile doesn't respond in 10s, proceed without token
+    const timeout = setTimeout(() => {
+      try { window.turnstile?.remove(widgetId); } catch {}
+      container.remove();
+      resolve("");
+    }, 10_000);
+
     const container = document.createElement("div");
     container.style.display = "none";
     document.body.appendChild(container);
@@ -34,17 +41,20 @@ function getTurnstileToken(): Promise<string> {
     const widgetId = window.turnstile.render(container, {
       sitekey: TURNSTILE_SITE_KEY,
       callback: (token: string) => {
+        clearTimeout(timeout);
         window.turnstile?.remove(widgetId);
         container.remove();
         resolve(token);
       },
       "error-callback": () => {
+        clearTimeout(timeout);
         container.remove();
-        reject(new Error("Turnstile challenge failed"));
+        resolve(""); // Graceful degradation — don't block the user
       },
       "expired-callback": () => {
+        clearTimeout(timeout);
         container.remove();
-        reject(new Error("Turnstile token expired"));
+        resolve("");
       },
       size: "invisible",
     });
