@@ -507,13 +507,17 @@ export async function handler(event) {
   }
 
   // Verify Cloudflare Turnstile token (server-side, can't be faked)
+  // If token is present, it MUST verify. If absent, allow with rate limiting only.
   const turnstileToken = body.turnstileToken || "";
-  if (TURNSTILE_SECRET && !await verifyTurnstile(turnstileToken, ip)) {
-    return {
-      statusCode: 403,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-      body: JSON.stringify({ error: "captcha_failed" }),
-    };
+  if (TURNSTILE_SECRET && turnstileToken) {
+    const valid = await verifyTurnstile(turnstileToken, ip);
+    if (!valid) {
+      return {
+        statusCode: 403,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({ error: "captcha_failed" }),
+      };
+    }
   }
 
   const parsed = InputSchema.safeParse(body);
