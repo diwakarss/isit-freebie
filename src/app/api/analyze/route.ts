@@ -394,6 +394,8 @@ function confidenceBand(level: string): number {
 
 // --- Route handler ---
 
+export const maxDuration = 120; // seconds — Bedrock calls take 60-90s
+
 export async function POST(request: NextRequest) {
   try {
     const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
