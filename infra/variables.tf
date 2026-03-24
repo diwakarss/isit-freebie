@@ -71,3 +71,15 @@ variable "budget_alert_email" {
   description = "Email for budget alerts"
   type        = string
 }
+
+variable "bedrock_access_key_id" {
+  description = "AWS access key ID for Bedrock IAM user"
+  type        = string
+  sensitive   = true
+}
+
+variable "bedrock_secret_access_key" {
+  description = "AWS secret access key for Bedrock IAM user"
+  type        = string
+  sensitive   = true
+}
