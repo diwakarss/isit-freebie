@@ -396,89 +396,126 @@ function confidenceBand(level: string): number {
 
 export const maxDuration = 120; // seconds — Bedrock calls take 60-90s
 
+// Streaming response to keep Amplify SSR Lambda alive (30s hard timeout).
+// Sends heartbeat newlines every 5s while Bedrock processes, then the JSON result.
 export async function POST(request: NextRequest) {
-  try {
-    const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
-    if (!checkRateLimit(ip)) {
-      return NextResponse.json({ error: "rate_limited" }, { status: 429 });
-    }
-
-    const body = await request.json();
-    const input = InputSchema.parse(body);
-    const analysis = await callClaude(input.scheme);
-
-    // Check for "not a scheme"
-    const allDimensions = analysis.layers.flatMap((l) => l.dimensions);
-    const allNegative = allDimensions.every((d) => d.score === -1);
-    if (allNegative) {
-      return NextResponse.json({
-        score: null,
-        freebieAnswer: "It's complicated" as const,
-        freebieShort: "Not a recognizable government scheme",
-        verdict: "Not a Scheme",
-        verdictColor: "#A1A1AA",
-        wsdScore: 0,
-        confidenceBand: 22,
-        confidenceLevel: "low",
-        designIntegrity: 0,
-        designIntegrityNote: "",
-        oneLine: analysis.oneLine,
-        archetype: analysis.archetype,
-        archetypeName: analysis.archetypeName,
-        archetypeReason: analysis.archetypeReason,
-        cascadeBeneficiary: null,
-        genderFlag: null,
-        layers: analysis.layers.map(l => ({ ...l, score: 0 })),
-        hiddenCost: analysis.hiddenCost,
-        hiddenCostHeadline: analysis.hiddenCostHeadline,
-        whatNumbersMiss: analysis.whatNumbersMiss,
-        shareLine: analysis.shareLine,
-        shareSignature: "",
-      });
-    }
-
-    const { wsdScore, layerScores, policyTargeting } = computeWSD(analysis.layers);
-    const verdict = assignVerdict(wsdScore, analysis.designIntegrity, policyTargeting);
-    const sig = signResult(wsdScore, analysis.designIntegrity);
-    const band = confidenceBand(analysis.confidenceLevel);
-
-    const layersWithScores = analysis.layers.map(l => ({
-      ...l,
-      score: l.name === "POLICY" ? layerScores.policy
-           : l.name === "HIDDEN" ? layerScores.hidden
-           : layerScores.dignity,
-    }));
-
-    return NextResponse.json({
-      score: wsdScore,
-      freebieAnswer: analysis.freebieAnswer,
-      freebieShort: analysis.freebieShort,
-      wsdScore,
-      confidenceBand: band,
-      confidenceLevel: analysis.confidenceLevel,
-      designIntegrity: analysis.designIntegrity,
-      designIntegrityNote: analysis.designIntegrityNote,
-      verdict: verdict.label,
-      verdictColor: verdict.color,
-      oneLine: analysis.oneLine,
-      archetype: analysis.archetype,
-      archetypeName: analysis.archetypeName,
-      archetypeReason: analysis.archetypeReason,
-      cascadeBeneficiary: analysis.cascadeBeneficiary,
-      genderFlag: analysis.genderFlag,
-      layers: layersWithScores,
-      hiddenCost: analysis.hiddenCost,
-      hiddenCostHeadline: analysis.hiddenCostHeadline,
-      whatNumbersMiss: analysis.whatNumbersMiss,
-      shareLine: analysis.shareLine,
-      shareSignature: sig,
-    });
-  } catch (error: unknown) {
-    if (error instanceof z.ZodError) {
-      const message = error.issues?.[0]?.message || "Invalid input";
-      return NextResponse.json({ error: message }, { status: 400 });
-    }
-    console.error("Analysis error:", error);
-    return NextResponse.json({ error: "analysis_failed" }, { status: 500 });
+  const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+  if (!checkRateLimit(ip)) {
+    return NextResponse.json({ error: "rate_limited" }, { status: 429 });
   }
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+  }
+
+  const parsed = InputSchema.safeParse(body);
+  if (!parsed.success) {
+    return NextResponse.json({ error: parsed.error.issues[0]?.message || "Invalid input" }, { status: 400 });
+  }
+
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream({
+    async start(controller) {
+      // Send heartbeat newlines every 5s to keep the connection alive
+      const heartbeat = setInterval(() => {
+        controller.enqueue(encoder.encode("\n"));
+      }, 5000);
+
+      try {
+        const analysis = await callClaude(parsed.data.scheme);
+
+        clearInterval(heartbeat);
+
+        // Check for "not a scheme"
+        const allDimensions = analysis.layers.flatMap((l) => l.dimensions);
+        const allNegative = allDimensions.every((d) => d.score === -1);
+
+        let result;
+        if (allNegative) {
+          result = {
+            score: null,
+            freebieAnswer: "It's complicated" as const,
+            freebieShort: "Not a recognizable government scheme",
+            verdict: "Not a Scheme",
+            verdictColor: "#A1A1AA",
+            wsdScore: 0,
+            confidenceBand: 22,
+            confidenceLevel: "low",
+            designIntegrity: 0,
+            designIntegrityNote: "",
+            oneLine: analysis.oneLine,
+            archetype: analysis.archetype,
+            archetypeName: analysis.archetypeName,
+            archetypeReason: analysis.archetypeReason,
+            cascadeBeneficiary: null,
+            genderFlag: null,
+            layers: analysis.layers.map(l => ({ ...l, score: 0 })),
+            hiddenCost: analysis.hiddenCost,
+            hiddenCostHeadline: analysis.hiddenCostHeadline,
+            whatNumbersMiss: analysis.whatNumbersMiss,
+            shareLine: analysis.shareLine,
+            shareSignature: "",
+          };
+        } else {
+          const { wsdScore, layerScores, policyTargeting } = computeWSD(analysis.layers);
+          const verdict = assignVerdict(wsdScore, analysis.designIntegrity, policyTargeting);
+          const sig = signResult(wsdScore, analysis.designIntegrity);
+          const band = confidenceBand(analysis.confidenceLevel);
+
+          const layersWithScores = analysis.layers.map(l => ({
+            ...l,
+            score: l.name === "POLICY" ? layerScores.policy
+                 : l.name === "HIDDEN" ? layerScores.hidden
+                 : layerScores.dignity,
+          }));
+
+          result = {
+            score: wsdScore,
+            freebieAnswer: analysis.freebieAnswer,
+            freebieShort: analysis.freebieShort,
+            wsdScore,
+            confidenceBand: band,
+            confidenceLevel: analysis.confidenceLevel,
+            designIntegrity: analysis.designIntegrity,
+            designIntegrityNote: analysis.designIntegrityNote,
+            verdict: verdict.label,
+            verdictColor: verdict.color,
+            oneLine: analysis.oneLine,
+            archetype: analysis.archetype,
+            archetypeName: analysis.archetypeName,
+            archetypeReason: analysis.archetypeReason,
+            cascadeBeneficiary: analysis.cascadeBeneficiary,
+            genderFlag: analysis.genderFlag,
+            layers: layersWithScores,
+            hiddenCost: analysis.hiddenCost,
+            hiddenCostHeadline: analysis.hiddenCostHeadline,
+            whatNumbersMiss: analysis.whatNumbersMiss,
+            shareLine: analysis.shareLine,
+            shareSignature: sig,
+          };
+        }
+
+        controller.enqueue(encoder.encode(JSON.stringify(result)));
+        controller.close();
+      } catch (error: unknown) {
+        clearInterval(heartbeat);
+        const msg = error instanceof z.ZodError
+          ? (error.issues[0]?.message || "Invalid input")
+          : "analysis_failed";
+        console.error("Analysis error:", error);
+        controller.enqueue(encoder.encode(JSON.stringify({ error: msg })));
+        controller.close();
+      }
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "text/plain; charset=utf-8",
+      "Transfer-Encoding": "chunked",
+    },
+  });
 }
