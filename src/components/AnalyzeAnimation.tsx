@@ -1,7 +1,7 @@
 "use client";
 
 import { motion, AnimatePresence } from "framer-motion";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 
 const BUREAUCRATIC_PHRASES = [
   "FILING PAPERWORK",
@@ -18,11 +18,25 @@ interface AnalyzeAnimationProps {
 
 export default function AnalyzeAnimation({ showThinking }: AnalyzeAnimationProps) {
   const [phraseIndex, setPhraseIndex] = useState(0);
+  const [progress, setProgress] = useState(0);
+  const startTime = useRef(Date.now());
 
   useEffect(() => {
     const interval = setInterval(() => {
       setPhraseIndex((i) => (i + 1) % BUREAUCRATIC_PHRASES.length);
     }, 800);
+    return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    startTime.current = Date.now();
+    const interval = setInterval(() => {
+      const elapsed = (Date.now() - startTime.current) / 1000;
+      // Fast to ~30% in first 5s, then slows logarithmically toward 95%
+      // Never reaches 100% on its own — that happens when result arrives
+      const pct = Math.min(95, 30 * (1 - Math.exp(-elapsed / 3)) + 65 * (1 - Math.exp(-elapsed / 40)));
+      setProgress(Math.round(pct));
+    }, 200);
     return () => clearInterval(interval);
   }, []);
 
@@ -101,6 +115,16 @@ export default function AnalyzeAnimation({ showThinking }: AnalyzeAnimationProps
           </motion.p>
         </AnimatePresence>
       </div>
+
+      {/* Progress percentage */}
+      <motion.p
+        className="font-display text-2xl text-accent tabular-nums"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ delay: 0.5 }}
+      >
+        {progress}%
+      </motion.p>
 
       {/* Progress dots */}
       {showThinking && (
