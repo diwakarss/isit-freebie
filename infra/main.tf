@@ -35,6 +35,8 @@ provider "cloudflare" {
   api_token = var.cloudflare_api_token
 }
 
+data "aws_caller_identity" "current" {}
+
 # --- IAM Role (manually created, not Terraform-managed) ---
 # arn:aws:iam::725822497948:role/AmplifyConsoleSvcRole
 # Permissions: AdministratorAccess-Amplify + inline Bedrock InvokeModel
@@ -180,7 +182,10 @@ resource "aws_iam_role_policy" "lambda_bedrock" {
     Statement = [{
       Effect   = "Allow"
       Action   = ["bedrock:InvokeModel"]
-      Resource = "arn:aws:bedrock:${var.aws_region}::foundation-model/${var.bedrock_model}"
+      Resource = [
+        "arn:aws:bedrock:${var.aws_region}::foundation-model/${var.bedrock_model}",
+        "arn:aws:bedrock:${var.aws_region}:${data.aws_caller_identity.current.account_id}:inference-profile/${var.bedrock_model}"
+      ]
     }]
   })
 }
