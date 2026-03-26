@@ -42,6 +42,31 @@ const WSDOutputSchema = z.object({
   shareLine: z.string().min(1),
 });
 
+// --- Cloudflare Turnstile verification ---
+
+const TURNSTILE_SECRET = process.env.TURNSTILE_SECRET || "";
+
+async function verifyTurnstile(token: string, ip: string): Promise<boolean> {
+  if (!TURNSTILE_SECRET) return true; // Skip in dev when no secret configured
+  if (!token) return false;
+
+  try {
+    const res = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        secret: TURNSTILE_SECRET,
+        response: token,
+        remoteip: ip,
+      }),
+    });
+    const data = await res.json();
+    return data.success === true;
+  } catch {
+    return false;
+  }
+}
+
 // --- Rate limiting ---
 
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
@@ -95,7 +120,7 @@ function signResult(wsdScore: number, designIntegrity: number): string {
   const secret = process.env.SHARE_SECRET;
   if (!secret) return "";
   const payload = `${wsdScore}:${designIntegrity}`;
-  return createHmac("sha256", secret).update(payload).digest("hex").slice(0, 8);
+  return createHmac("sha256", secret).update(payload).digest("hex").slice(0, 32);
 }
 
 // --- System prompt (WSD v1.3) ---
@@ -409,6 +434,18 @@ export async function POST(request: NextRequest) {
     body = await request.json();
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+  }
+
+  // Verify Cloudflare Turnstile token — required when TURNSTILE_SECRET is configured
+  if (TURNSTILE_SECRET) {
+    const turnstileToken = body.turnstileToken || "";
+    if (!turnstileToken) {
+      return NextResponse.json({ error: "captcha_required" }, { status: 403 });
+    }
+    const valid = await verifyTurnstile(turnstileToken, ip);
+    if (!valid) {
+      return NextResponse.json({ error: "captcha_failed" }, { status: 403 });
+    }
   }
 
   const parsed = InputSchema.safeParse(body);
