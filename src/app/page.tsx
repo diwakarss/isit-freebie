@@ -186,7 +186,10 @@ export default function Home() {
 
   const handleShare = useCallback(() => {
     if (!result) return;
-    navigator.clipboard.writeText(result.shareLine || "").then(() => setToast("Share text copied!"));
+    const url = "https://isitafreebie.jdlabs.top";
+    const maxTextLen = 280 - 24; // Twitter counts URLs as 23 chars + 1 space
+    const text = (result.shareLine || "").slice(0, maxTextLen);
+    navigator.clipboard.writeText(`${text} ${url}`).then(() => setToast("Share text copied!"));
   }, [result]);
 
   return (

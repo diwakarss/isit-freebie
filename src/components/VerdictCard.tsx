@@ -59,7 +59,11 @@ export default function VerdictCard({ result, schemeName, onTryAnother, onShare 
   const pageRef = useRef<HTMLDivElement>(null);
 
   const handleCopyShare = () => {
-    navigator.clipboard.writeText(result.shareLine || "").then(() => {
+    const url = "https://isitafreebie.jdlabs.top";
+    // Twitter counts URLs as 23 chars, limit is 280. Reserve 23+1 for URL + space.
+    const maxTextLen = 280 - 24;
+    const text = (result.shareLine || "").slice(0, maxTextLen);
+    navigator.clipboard.writeText(`${text} ${url}`).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     });
