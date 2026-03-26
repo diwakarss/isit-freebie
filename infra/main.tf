@@ -78,6 +78,7 @@ resource "aws_amplify_app" "app" {
     BEDROCK_SECRET_ACCESS_KEY        = var.bedrock_secret_access_key
     NEXT_PUBLIC_TURNSTILE_SITE_KEY   = var.turnstile_site_key
     NEXT_PUBLIC_ANALYZE_URL          = aws_lambda_function_url.analyze.function_url
+    TURNSTILE_SECRET                 = var.turnstile_secret
   }
 
   custom_rule {
@@ -217,12 +218,11 @@ resource "aws_lambda_function" "analyze" {
 
   environment {
     variables = {
-      BEDROCK_MODEL             = var.bedrock_model
-      BEDROCK_REGION            = var.aws_region
-      SHARE_SECRET              = var.share_secret
-      BEDROCK_ACCESS_KEY_ID     = var.bedrock_access_key_id
-      BEDROCK_SECRET_ACCESS_KEY = var.bedrock_secret_access_key
-      TURNSTILE_SECRET          = var.turnstile_secret
+      BEDROCK_MODEL    = var.bedrock_model
+      BEDROCK_REGION   = var.aws_region
+      SHARE_SECRET     = var.share_secret
+      TURNSTILE_SECRET = var.turnstile_secret
+      # Lambda uses its execution role for Bedrock access — no explicit keys needed
     }
   }
 

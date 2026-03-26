@@ -133,7 +133,7 @@ function signResult(wsdScore, designIntegrity) {
   const secret = process.env.SHARE_SECRET;
   if (!secret) return "";
   const payload = `${wsdScore}:${designIntegrity}`;
-  return createHmac("sha256", secret).update(payload).digest("hex").slice(0, 8);
+  return createHmac("sha256", secret).update(payload).digest("hex").slice(0, 32);
 }
 
 // --- System prompt (WSD v1.3) ---
@@ -324,14 +324,10 @@ const TOOL_DEFINITION = {
 const BEDROCK_MODEL = process.env.BEDROCK_MODEL || "us.anthropic.claude-sonnet-4-5-20250929-v1:0";
 
 async function callClaude(scheme) {
-  const clientOpts = {
+  // Lambda uses its execution role for Bedrock access — no explicit keys needed
+  const client = new AnthropicBedrock({
     awsRegion: process.env.BEDROCK_REGION || process.env.AWS_REGION || "us-east-1",
-  };
-  if (process.env.BEDROCK_ACCESS_KEY_ID && process.env.BEDROCK_SECRET_ACCESS_KEY) {
-    clientOpts.awsAccessKey = process.env.BEDROCK_ACCESS_KEY_ID;
-    clientOpts.awsSecretKey = process.env.BEDROCK_SECRET_ACCESS_KEY;
-  }
-  const client = new AnthropicBedrock(clientOpts);
+  });
 
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
@@ -465,8 +461,9 @@ export async function handler(event) {
     };
   }
 
-  // Server-side origin enforcement (CORS is browser-only, curl bypasses it)
-  if (requestOrigin && !ALLOWED_ORIGINS.includes(requestOrigin)) {
+  // Server-side origin enforcement — reject requests with no Origin or disallowed Origin
+  // (CORS is browser-only; curl/scripts send no Origin header, so we block those too)
+  if (!requestOrigin || !ALLOWED_ORIGINS.includes(requestOrigin)) {
     return {
       statusCode: 403,
       headers: { "Content-Type": "application/json" },
@@ -507,9 +504,16 @@ export async function handler(event) {
   }
 
   // Verify Cloudflare Turnstile token (server-side, can't be faked)
-  // If token is present, it MUST verify. If absent, allow with rate limiting only.
+  // When TURNSTILE_SECRET is configured, a valid token is REQUIRED.
   const turnstileToken = body.turnstileToken || "";
-  if (TURNSTILE_SECRET && turnstileToken) {
+  if (TURNSTILE_SECRET) {
+    if (!turnstileToken) {
+      return {
+        statusCode: 403,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({ error: "captcha_required" }),
+      };
+    }
     const valid = await verifyTurnstile(turnstileToken, ip);
     if (!valid) {
       return {
