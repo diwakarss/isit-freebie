@@ -1,0 +1,97 @@
+variable "aws_region" {
+  description = "AWS region for deployment"
+  type        = string
+  default     = "us-east-1"
+}
+
+variable "app_name" {
+  description = "Application name"
+  type        = string
+  default     = "isitafreebie"
+}
+
+variable "domain_name" {
+  description = "Custom domain for the app"
+  type        = string
+  default     = "isitafreebie.jdlabs.top"
+}
+
+variable "parent_domain" {
+  description = "Parent domain"
+  type        = string
+  default     = "jdlabs.top"
+}
+
+variable "github_repository" {
+  description = "GitHub repository URL (https)"
+  type        = string
+}
+
+variable "github_branch" {
+  description = "Branch to deploy"
+  type        = string
+  default     = "master"
+}
+
+variable "github_token" {
+  description = "GitHub personal access token for Amplify"
+  type        = string
+  sensitive   = true
+}
+
+variable "share_secret" {
+  description = "HMAC signing secret for share URLs"
+  type        = string
+  sensitive   = true
+}
+
+variable "amplify_service_role_arn" {
+  description = "ARN of the manually-created IAM role for Amplify (with Bedrock permissions)"
+  type        = string
+}
+
+variable "bedrock_model" {
+  description = "Bedrock model ID"
+  type        = string
+  default     = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+}
+
+variable "cloudflare_api_token" {
+  description = "Cloudflare API token with DNS edit permissions"
+  type        = string
+  sensitive   = true
+}
+
+variable "cloudflare_zone_id" {
+  description = "Cloudflare zone ID for jdlabs.top"
+  type        = string
+}
+
+variable "budget_alert_email" {
+  description = "Email for budget alerts"
+  type        = string
+}
+
+variable "bedrock_access_key_id" {
+  description = "AWS access key ID for Bedrock IAM user"
+  type        = string
+  sensitive   = true
+}
+
+variable "bedrock_secret_access_key" {
+  description = "AWS secret access key for Bedrock IAM user"
+  type        = string
+  sensitive   = true
+}
+
+variable "turnstile_site_key" {
+  description = "Cloudflare Turnstile site key (public)"
+  type        = string
+  default     = "0x4AAAAAACve0rOm6EAt0wdd"
+}
+
+variable "turnstile_secret" {
+  description = "Cloudflare Turnstile secret key (server-side verification)"
+  type        = string
+  sensitive   = true
+}
