@@ -83,6 +83,14 @@ resource "aws_amplify_app" "app" {
     TURNSTILE_SECRET                 = var.turnstile_secret
   }
 
+  custom_headers = <<-YAML
+    customHeaders:
+      - pattern: '**/*'
+        headers:
+          - key: Content-Security-Policy
+            value: "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' https://challenges.cloudflare.com https://*.lambda-url.us-east-1.on.aws; frame-src https://challenges.cloudflare.com; object-src 'none'; base-uri 'self'"
+  YAML
+
   custom_rule {
     source = "/<*>"
     status = "404"
@@ -183,8 +191,8 @@ resource "aws_iam_role_policy" "lambda_bedrock" {
       Effect   = "Allow"
       Action   = ["bedrock:InvokeModel"]
       Resource = [
-        "arn:aws:bedrock:${var.aws_region}::foundation-model/${var.bedrock_model}",
-        "arn:aws:bedrock:${var.aws_region}:${data.aws_caller_identity.current.account_id}:inference-profile/${var.bedrock_model}"
+        "arn:aws:bedrock:*::foundation-model/anthropic.*",
+        "arn:aws:bedrock:*:${data.aws_caller_identity.current.account_id}:inference-profile/us.anthropic.*"
       ]
     }]
   })
