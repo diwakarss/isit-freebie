@@ -88,7 +88,7 @@ resource "aws_amplify_app" "app" {
       - pattern: '**/*'
         headers:
           - key: Content-Security-Policy
-            value: "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' https://challenges.cloudflare.com https://*.lambda-url.us-east-1.on.aws; frame-src https://challenges.cloudflare.com; object-src 'none'; base-uri 'self'"
+            value: "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob:; font-src 'self' https://fonts.gstatic.com; connect-src 'self' https://challenges.cloudflare.com https://*.lambda-url.us-east-1.on.aws; frame-src https://challenges.cloudflare.com; object-src 'none'; base-uri 'self'"
   YAML
 
   custom_rule {
