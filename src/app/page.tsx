@@ -353,6 +353,18 @@ export default function Home() {
         </AnimatePresence>
       </div>
 
+      {/* Built by */}
+      <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40">
+        <a
+          href="https://x.com/1nimit"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="font-body text-xs text-muted/50 hover:text-muted transition-colors"
+        >
+          built by @1nimit
+        </a>
+      </div>
+
       {/* Toast */}
       <AnimatePresence>
         {toast && <Toast message={toast} onDone={() => setToast("")} />}
