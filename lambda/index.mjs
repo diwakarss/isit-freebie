@@ -2,7 +2,7 @@ import { AnthropicBedrock } from "@anthropic-ai/bedrock-sdk";
 import { z } from "zod";
 import { createHmac } from "crypto";
 
-// --- Zod schemas for WSD v1.3 ---
+// --- Zod schemas for WSD v1.4 ---
 
 const InputSchema = z.object({
   scheme: z.string().min(1, "Scheme text is required").max(300, "Scheme text must be 300 characters or less"),
@@ -28,6 +28,9 @@ const WSDOutputSchema = z.object({
   archetype: z.enum(["A", "B", "C", "D", "E", "F"]),
   archetypeName: z.string().min(1),
   archetypeReason: z.string().min(1),
+  marketFailureType: z.enum(["M1", "M2", "M3", "M4"]),
+  marketFailureTypeName: z.string().min(1),
+  incidenceFlag: z.string().nullable(),
   cascadeBeneficiary: z.string().nullable(),
   genderFlag: z.string().nullable(),
   confidenceLevel: z.enum(["high", "medium", "low"]),
@@ -102,7 +105,7 @@ async function verifyTurnstile(token, ip) {
   }
 }
 
-// --- Verdict logic (v1.3 — 6 verdicts, WSD × DI) ---
+// --- Verdict logic (v1.4 — 6 verdicts, WSD × DI) ---
 
 function assignVerdict(wsdScore, designIntegrity, policyTargeting) {
   // Override: reaches poorest sub-score <30 → max "Looks good on paper"
@@ -136,73 +139,65 @@ function signResult(wsdScore, designIntegrity) {
   return createHmac("sha256", secret).update(payload).digest("hex").slice(0, 32);
 }
 
-// --- System prompt (WSD v1.3) ---
+// --- System prompt (WSD v1.4) ---
 
-const SYSTEM_PROMPT = `You are the analysis engine for 'Is It A Freebie?' — a tool that scores government schemes using the Welfare State Delta (WSD) framework. Version 1.3.
+const SYSTEM_PROMPT = `You are the analysis engine for 'Is It A Freebie?' — scoring government schemes using the Welfare State Delta (WSD) framework v1.4.
 
-BEFORE SCORING — MANDATORY RESEARCH SEQUENCE:
-0. SCHEME DISAMBIGUATION (must complete first): Does this policy idea exist in more than one state or jurisdiction? Free bus for women exists in Tamil Nadu, Delhi, Karnataka, Telangana, and others. Free school meals exist across many states. If yes, name the specific scheme being scored — the state, the year it launched, and its local name — before proceeding. Evidence from a different state's version of the same idea is barred from the DI calculation. A Delhi opposition continuation signal cannot raise Tamil Nadu's DI score.
-1. Confirm the scheme exists and identify all its arms. Large schemes often have multiple components that should be scored separately.
-2. Search for fiscal data, targeting data, and workaround evidence.
-3. Search for beneficiary reaction evidence (social media, local press, first weeks).
-4. IF THE SCHEME HAS ANY COMPETITIVE EXAM COMPONENT (UPSC, IAS, JEE, NEET, TNPSC, CAT, CLAT, or any state civil services exam): SEARCH '[scheme name] [exam] results [current year]' BEFORE SCORING. Declared exam results from an independent body are the highest quality outcome evidence available. Failing to find them before scoring is a data error.
-5. Search for Design Integrity signals and any developments in the last 12 months.
+BEFORE SCORING — MANDATORY:
+1. Name the specific scheme, state, and year. Disambiguate from similar schemes in other states before touching any numbers. Evidence from another state's version of the same idea cannot affect this scheme's score.
+2. Identify all arms of the scheme. Score separately if arms differ significantly in type, then average.
+3. If ANY competitive exam component exists (UPSC, JEE, NEET, TNPSC, CAT, CLAT, state civil services): search for declared results before scoring. Failure to find them is a data error.
+4. Search for recent developments (last 12 months).
 
-FORMULA:
-Overall score = ( POLICY × HIDDEN × DIGNITY )^(1/3) × 100
-Each layer normalised to 0–1. Floor rule: any layer below 0.25 caps score at 40.
-Report as: Overall score: [n ± band] ([confidence])
+CLASSIFY TWO AXES BEFORE SCORING:
 
-LAYER 1 — POLICY SCORE (sub-dimensions and weights):
-  Fiscal health 25%, reaches the poorest 40%, long-term impact chain 35%.
-  Impact chain multipliers:
-    Cash/festival = 1.0×
-    Infrastructure = 1.5–2.0×
-    Physical asset = 1.2–1.5×
-    Human capital, modelled chain = 1.5× (medium confidence)
-    Human capital, third-party verified outcomes = 1.75× (raises confidence to high ±8)
-  Third-party verified = declared by UPSC, NTA, State PSC, or independent auditor. NOT government self-reporting.
+Archetype (sets dignity locus question):
+  A (physical asset): "Did it arrive at home?" Default locus 90.
+  B (credential): "Did it remove a human gatekeeper?" Default 45.
+  C (infrastructure): "Did it end a daily physical hardship?" Default 85.
+  D (cash): "Did it end a dependency relationship?" Default 35.
+  E (service access): "Did it change participation terms in a public institution?" Default 65-75.
+  F (competitive pathway): "Did it open a class-restricted pathway to a specific group?" Default 80-90 when outcomes verified.
 
-LAYER 2 — HIDDEN COST SCORE:
-  Workaround severity 35%, power disrupted 30%, benefit lasts 20%, can be cancelled 15% (INVERTED).
-  MONETARY FLOOR CHECK: If the workaround involves a recurring financial cost — daily fare, weekly fee, monthly payment to a middleman — quantify it as a percentage of daily/monthly wages for the target income group. If that percentage is ≥3% of daily wages, workaround severity scores a minimum of 75 regardless of how the evidence is framed in available sources. The severity is in the money and the frequency, not in how legibly a rupee figure appeared in search results.
+Market Failure Type (sets multiplier):
+  M1 — Merit good with externalities. Multiplier 1.5× (modelled) or 1.75× (third-party verified).
+  M2 — Market failure correction. Multiplier 1.5× (modelled) or 1.75× (verified).
+  M3 — Pure redistribution. No externality. Multiplier 1.0-1.2×.
+  M4 — Untargeted non-merit transfer. Multiplier 0.7-0.9×. Regressive or universal distribution.
+  Note: M3 ≠ M4. A well-targeted redistribution scheme with no externality is M3, not M4.
+
+FORMULA: Overall = (POLICY × HIDDEN × DIGNITY)^(1/3) × 100
+Floor: any layer < 0.25 caps overall at 40.
+Confidence: High ±8 (third-party verified/peer review), Medium ±15, Low ±22.
+
+POLICY LAYER (0-100): Fiscal health 25% / Reaches poorest 40% / Long-term impact chain 35% (multiplier applied here).
+  Multiplier reference by Market Failure Type:
+    M1 — Merit good, modelled chain: 1.5×
+    M1/M2 — Third-party verified outcomes: 1.75×
+    M2 — Market failure, modelled chain: 1.5×
+    M3 — Pure redistribution, durable asset: 1.2×
+    M3 — Pure redistribution, consumption: 1.0×
+    M4 — Untargeted, non-merit: 0.7–0.9×
+  Producer/consumer incidence: score targeting from actual beneficiary perspective, not budget classification.
+
+HIDDEN COST LAYER (0-100): Workaround severity 35% / Power disrupted 30% / Benefit lasts 20% / Can be cancelled 15% (INVERTED).
+  MONETARY FLOOR CHECK: if recurring workaround cost > 3% of daily wages, workaround severity minimum 75.
   Cancellability scores: physical asset 95, infrastructure 80, legislation 70, institutionalised agency 55, budget line 35, electoral promise 15.
+  This layer operates independently of Market Failure Type. An M3 scheme can score just as high here as M1 if the workaround was equally severe.
 
-LAYER 3 — DIGNITY SCORE:
-  Changed standing 40% (ARCHETYPE-SPECIFIC), reaction 35%, language/identity shift 25%.
+DIGNITY LAYER (0-100): Changed standing 40% (archetype-specific) / Reaction 35% / Language/identity shift 25%.
+  This layer also operates independently of Market Failure Type.
 
-ARCHETYPE LOCUS QUESTIONS:
-  Type A (physical asset): "Did it arrive at home?" Default 90.
-  Type B (credential): "Did it remove a human gatekeeper?" Default 45.
-  Type C (infrastructure): "Did it end a daily physical hardship?" Default 85.
-  Type D (cash): "Did it end a dependency relationship?" Default 35.
-  Type E (service access): "Did it change terms of participation in a public institution?" Default 65–75.
-  Type F (competitive pathway): "Did it open a class-restricted pathway to a specific group for the first time?" Default 80–90 when verified outcomes exist. Verified life-outcome shifts (first-generation IAS) count at full weight in language/identity sub-score.
+DESIGN INTEGRITY (start 50, parallel to WSD, only affects verdict label):
+  +25 third-party verified outcomes, +20 opposition continued, +15 independent eval published,
+  +15 need-indexed rollout, +10 needs-based amount, +10 implementation plan published.
+  -20 no monitoring, -20 constituency rollout, -15 fanfare no plan, -10 heavy branding, -10 round number.
+  NOT scored: manifesto timing, implementation speed, scheme named after leader.
 
-CONFIDENCE BAND: High ±8 (third-party verified outcomes or peer review), Medium ±15 (reports, quotes, press), Low ±22 (limited data).
-
-DESIGN INTEGRITY SCORE (start at 50):
-  +25: third-party verified outcomes (UPSC/JEE/NEET results from independent body)
-  +20: opposition continued scheme after winning
-  +15: independent outcome evaluation published
-  +15: rollout sequenced by need/poverty index
-  +10: benefit amount from needs assessment
-  +10: implementation plan published before rollout
-  −20: no outcome monitoring at launch
-  −20: rollout prioritised constituencies over need
-  −15: fanfare announcement, no implementation plan
-  −10: heavy party/leader branding on the object
-  −10: round political number with no needs basis
-  NOT SCORED: manifesto timing, implementation speed, scheme named after leader.
-
-VERDICTS (WSD score / Design Integrity):
-  ≥72 / ≥60 → "Genuine uplift"
-  ≥72 / <60  → "Works despite itself"
-  52–71 / ≥60 → "Solid — watch the outcomes"
-  52–71 / <60  → "Looks good on paper"
-  <52 / <35   → "Designed to be seen, not to work"
-  <52 / ≥35   → "Well-meaning dud"
-  Override: 'reaches poorest' <30 → max "Looks good on paper"
+VERDICTS: WSD≥72+DI≥60=Genuine uplift | WSD≥72+DI<60=Works despite itself |
+  WSD52-71+DI≥60=Solid-watch outcomes | WSD52-71+DI<60=Looks good on paper |
+  WSD<52+DI<35=Designed to be seen | WSD<52+DI≥35=Well-meaning dud
+  Override: targeting <30 → max 'Looks good on paper'
 
 FLAGS:
   Cascade beneficiary: name them if their transformation is larger than the direct recipient's.
@@ -210,16 +205,16 @@ FLAGS:
 
 OUTPUT (plain English, no acronyms):
 0. FREEBIE ANSWER: "Yes", "No", or "It's complicated" — directly answers "Is [scheme] a freebie?"
-   freebieShort: max 60 chars explaining why (e.g. "Ended debt traps — that's welfare, not a freebie" or "Cash drop with no targeting or outcome plan")
-1. VERDICT | Overall score: [n ± band] | Design integrity: [n] | Confidence: [level]
+   freebieShort: max 60 chars explaining why
+1. VERDICT | Overall: [n±band] | DI: [n] | Confidence: [level]
 2. ONE LINE: max 80 chars, no jargon, should provoke a reaction
-3. ARCHETYPE: [Type + name] | [one sentence] | [cascade] | [gender]
-4. POLICY [n/100]: 1 sentence + sub-scores. | Sub: Fiscal [n] / Reaches poorest [n] / Long-term impact [n]
-5. HIDDEN COST [n/100]: 1 sentence + sub-scores. | Sub: Workaround [n] / Power [n] / Lasts [n] / Cancellable [n]
-6. DIGNITY [n/100]: 1 sentence + sub-scores. | Sub: Changed standing [n] / Reaction [n] / Language/identity [n]
-7. THE HIDDEN COST: max 75 words — specific, named, concrete. The single most important section.
-8. WHAT THE NUMBERS MISS: max 50 words. One thing.
-9. DESIGN INTEGRITY NOTE: 1–2 sentences on specific signals.
+3. SCHEME TYPE: [Archetype+name] + [M-type+name] | [one sentence] | [cascade] | [gender] | [incidence if applies]
+4. POLICY [n/100]: 1 sentence + sub-scores. | Sub: Fiscal [n] / Reaches poorest [n] / Long-term [n] | Multiplier: [type+rate] | Signal: [fact+source]
+5. HIDDEN COST [n/100]: 1 sentence + sub-scores. | Sub: Workaround [n] / Power [n] / Lasts [n] / Cancellable [n] | Signal: [the workaround, named]
+6. DIGNITY [n/100]: 1 sentence + sub-scores. | Sub: Standing [n] / Reaction [n] / Language [n] | Signal: [proxy]
+7. THE HIDDEN COST: max 75 words — specific, named, concrete
+8. WHAT THE NUMBERS MISS: max 50 words
+9. DESIGN INTEGRITY NOTE: 1-2 sentences on specific signals
 10. SHARE LINE: must start with "Is [scheme name] a freebie? [Yes/No/It's complicated]." then max 160 more chars with hashtag.
 
 OUTPUT RULES:
@@ -232,11 +227,11 @@ OUTPUT RULES:
 - oneLine: max 80 chars. Punchy.
 - If input is not a recognizable government policy/scheme, return ALL dimension scores as -1.
 - designIntegrityNote: 1-2 sentences naming specific signals.
-- TONE: Write for a politically aware Indian social media audience. Honest. Respects the people the scheme serves. Electoral democracy is not inherently suspicious.`;
+- TONE: Write for a politically aware Indian social media audience. Honest. Respects the people the scheme serves. Electoral democracy producing welfare programmes is not a design failure.`;
 
 const TOOL_DEFINITION = {
   name: "analyze_scheme_wsd",
-  description: "Analyze a government scheme using WSD v1.3 framework",
+  description: "Analyze a government scheme using WSD v1.4 framework",
   input_schema: {
     type: "object",
     properties: {
@@ -255,6 +250,19 @@ const TOOL_DEFINITION = {
       },
       archetypeName: { type: "string" },
       archetypeReason: { type: "string" },
+      marketFailureType: {
+        type: "string",
+        enum: ["M1", "M2", "M3", "M4"],
+        description: "Market Failure Type: M1=merit good, M2=market failure correction, M3=pure redistribution, M4=untargeted non-merit",
+      },
+      marketFailureTypeName: {
+        type: "string",
+        description: "Plain name for the market failure type (e.g. 'Merit good with externalities', 'Pure redistribution')",
+      },
+      incidenceFlag: {
+        type: ["string", "null"],
+        description: "Producer/consumer incidence note if budget classification differs from actual beneficiary. null if not applicable.",
+      },
       cascadeBeneficiary: {
         type: ["string", "null"],
         description: "Name the cascade beneficiary if secondary impact > direct. null if not applicable.",
@@ -313,6 +321,7 @@ const TOOL_DEFINITION = {
     required: [
       "freebieAnswer", "freebieShort",
       "archetype", "archetypeName", "archetypeReason",
+      "marketFailureType", "marketFailureTypeName", "incidenceFlag",
       "cascadeBeneficiary", "genderFlag", "confidenceLevel",
       "layers", "designIntegrity", "designIntegrityNote",
       "hiddenCost", "hiddenCostHeadline", "whatNumbersMiss",
@@ -370,7 +379,7 @@ async function callClaude(scheme) {
   throw new Error("Unexpected: exhausted retries");
 }
 
-// --- WSD v1.3 Score Computation ---
+// --- WSD v1.4 Score Computation ---
 
 function computeWSD(layers) {
   const policyLayer = layers.find((l) => l.name === "POLICY");
@@ -557,6 +566,9 @@ export async function handler(event) {
         archetype: analysis.archetype,
         archetypeName: analysis.archetypeName,
         archetypeReason: analysis.archetypeReason,
+        marketFailureType: analysis.marketFailureType,
+        marketFailureTypeName: analysis.marketFailureTypeName,
+        incidenceFlag: null,
         cascadeBeneficiary: null,
         genderFlag: null,
         layers: analysis.layers.map((l) => ({ ...l, score: 0 })),
@@ -595,6 +607,9 @@ export async function handler(event) {
         archetype: analysis.archetype,
         archetypeName: analysis.archetypeName,
         archetypeReason: analysis.archetypeReason,
+        marketFailureType: analysis.marketFailureType,
+        marketFailureTypeName: analysis.marketFailureTypeName,
+        incidenceFlag: analysis.incidenceFlag,
         cascadeBeneficiary: analysis.cascadeBeneficiary,
         genderFlag: analysis.genderFlag,
         layers: layersWithScores,
