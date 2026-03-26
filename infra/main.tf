@@ -35,6 +35,8 @@ provider "cloudflare" {
   api_token = var.cloudflare_api_token
 }
 
+data "aws_caller_identity" "current" {}
+
 # --- IAM Role (manually created, not Terraform-managed) ---
 # arn:aws:iam::725822497948:role/AmplifyConsoleSvcRole
 # Permissions: AdministratorAccess-Amplify + inline Bedrock InvokeModel
@@ -80,6 +82,14 @@ resource "aws_amplify_app" "app" {
     NEXT_PUBLIC_ANALYZE_URL          = aws_lambda_function_url.analyze.function_url
     TURNSTILE_SECRET                 = var.turnstile_secret
   }
+
+  custom_headers = <<-YAML
+    customHeaders:
+      - pattern: '**/*'
+        headers:
+          - key: Content-Security-Policy
+            value: "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' https://challenges.cloudflare.com https://*.lambda-url.us-east-1.on.aws; frame-src https://challenges.cloudflare.com; object-src 'none'; base-uri 'self'"
+  YAML
 
   custom_rule {
     source = "/<*>"
@@ -180,7 +190,10 @@ resource "aws_iam_role_policy" "lambda_bedrock" {
     Statement = [{
       Effect   = "Allow"
       Action   = ["bedrock:InvokeModel"]
-      Resource = "arn:aws:bedrock:${var.aws_region}::foundation-model/${var.bedrock_model}"
+      Resource = [
+        "arn:aws:bedrock:*::foundation-model/anthropic.*",
+        "arn:aws:bedrock:*:${data.aws_caller_identity.current.account_id}:inference-profile/us.anthropic.*"
+      ]
     }]
   })
 }
