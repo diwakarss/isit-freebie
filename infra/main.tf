@@ -83,13 +83,8 @@ resource "aws_amplify_app" "app" {
     TURNSTILE_SECRET                 = var.turnstile_secret
   }
 
-  custom_headers = <<-YAML
-    customHeaders:
-      - pattern: '**/*'
-        headers:
-          - key: Content-Security-Policy
-            value: "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob:; font-src 'self' https://fonts.gstatic.com; connect-src 'self' https://challenges.cloudflare.com https://*.lambda-url.us-east-1.on.aws; frame-src https://challenges.cloudflare.com; object-src 'none'; base-uri 'self'"
-  YAML
+  # CSP is managed by Amplify's built-in nonce-based policy for SSR pages.
+  # Custom CSP headers conflict with Amplify's nonce CSP — don't set them here.
 
   custom_rule {
     source = "/<*>"
