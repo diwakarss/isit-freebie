@@ -1,4 +1,4 @@
-// --- WSD v1.3 Framework Types ---
+// --- WSD v1.4 Framework Types ---
 
 export interface LayerDimension {
   name: string;
@@ -38,6 +38,11 @@ export interface AnalysisResult {
   archetypeReason: string;
   cascadeBeneficiary: string | null;
   genderFlag: string | null;
+
+  // Market Failure Type (v1.4)
+  marketFailureType: "M1" | "M2" | "M3" | "M4";
+  marketFailureTypeName: string;
+  incidenceFlag: string | null;
 
   // Layers
   layers: WSDLayer[];

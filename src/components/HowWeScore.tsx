@@ -39,8 +39,7 @@ export default function HowWeScore({ onBack }: HowWeScoreProps) {
         How we score a scheme
       </h1>
       <p className="text-[14px] text-text-65 leading-[1.65] mb-8 max-w-[500px]">
-        We research the scheme before scoring it. Then we run it through three measures and combine them.
-        The formula is a geometric mean — not an average, not a raw product.
+        Two things first, then the maths. We identify exactly which scheme you mean and research what actually happened before putting any numbers to it.
       </p>
 
       {/* Formula block */}
@@ -61,12 +60,10 @@ export default function HowWeScore({ onBack }: HowWeScoreProps) {
           <span className="text-[13px] font-medium text-text">Overall score</span>
         </div>
         <p className="text-[12px] text-muted leading-[1.6]">
-          Geometric mean: a weak layer still drags the score down, but a solid scheme with no single
-          standout dimension isn&apos;t punished for being consistently decent.
+          Geometric mean — not a plain average and not a raw multiplication. A weak layer still hurts you, but a solid scheme with no single standout dimension isn&apos;t punished for being consistently decent.
         </p>
         <p className="text-[12px] text-text-65 mt-2.5 pl-3 border-l-2 border-border-secondary leading-[1.6]">
-          Hard floor: if any layer scores below 25, the overall score is capped at 40. A scheme that
-          fails badly on one dimension cannot be rescued by the other two.
+          Hard floor: if any layer scores below 25, the overall score is capped at 40. A scheme that fails badly on one dimension cannot be rescued by the other two.
         </p>
       </div>
 
@@ -81,10 +78,13 @@ export default function HowWeScore({ onBack }: HowWeScoreProps) {
             <span className="text-[13px] font-medium text-text">What the spreadsheet sees</span>
           </div>
           <p className="text-[13px] text-text-65 leading-[1.7]">
-            Cost per beneficiary. Whether the poorest actually got it or the benefit spread across everyone
-            equally. And the long-term impact chain — <strong className="font-medium text-text">deferred is not the same as weak.</strong> A
-            scheme that raises children&apos;s future earnings scores higher than one that hands out cash once
-            and disappears.
+            Cost per beneficiary. Whether the poorest actually got it or the benefit spread equally across everyone. And the long-term impact chain — <strong className="font-medium text-text">deferred is not the same as weak.</strong> A scheme that raises children&apos;s future earnings scores higher than a one-time cash drop, not lower.
+          </p>
+          <p className="text-[13px] text-text-65 leading-[1.7] mt-3">
+            We also ask whether the subsidy had an economic reason behind it — does it benefit people beyond the direct recipient, or fix a barrier the market created for the poor? <strong className="font-medium text-text">If yes, the long-term impact score gets a boost.</strong> If it&apos;s pure redistribution with no wider social benefit, the score is neutral. Only genuinely untargeted schemes that reach the non-poor take a hit here.
+          </p>
+          <p className="text-[12px] text-muted mt-2.5 px-2.5 py-1.5 bg-[rgba(0,0,0,0.03)] dark:bg-[rgba(255,255,255,0.04)] rounded-md leading-[1.55]">
+            This economic question affects only the Policy score. It cannot move the Hidden Cost or Dignity scores — those are measured independently. A scheme can fail the economic test and still score well overall if it ends a real workaround and creates a real dignity moment.
           </p>
         </div>
 
@@ -99,8 +99,7 @@ export default function HowWeScore({ onBack }: HowWeScoreProps) {
           <p className="text-[13px] text-text-65 leading-[1.7]">
             Before this scheme, how did people get this thing? Did they borrow, beg, pay a middleman, perform
             social labour, or go without? <strong className="font-medium text-text">The worse the workaround, the higher this
-            score</strong> when the scheme ends it. We also ask whether the benefit lasts — and whether the next
-            government can cancel it in a single budget.
+            score</strong> when the scheme ends it. We also check whether the recurring cost ate more than 3% of daily wages — if it did, the workaround was severe regardless of how the evidence is framed. And we ask whether the benefit lasts, and whether the next government can cancel it in a single budget.
           </p>
         </div>
 
@@ -148,8 +147,8 @@ export default function HowWeScore({ onBack }: HowWeScoreProps) {
       <p className="text-[13px] text-text-65 leading-[1.7] mb-4">
         We don&apos;t penalise a government for winning an election on welfare promises and then delivering
         them. What we do look at: was outcome monitoring built in from the start? Was rollout by poverty
-        index or by swing constituency? Did the opposition keep it running after winning power? These are
-        the signals that separate a scheme built to work from one built to be photographed.
+        index or by swing constituency? Did the opposition keep it running after winning power? <strong className="font-medium text-text">These are
+        the signals that separate a scheme built to work from one built to be photographed.</strong>
       </p>
 
       {/* Honest box */}
