@@ -25,6 +25,7 @@ next-env.d.ts
 # context
 .context/
 .gstack/
+.claude/skills/gstack/
 
 # terraform
 infra/.terraform/
