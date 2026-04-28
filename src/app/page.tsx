@@ -56,8 +56,7 @@ function getTurnstileToken(): Promise<string> {
         container.remove();
         resolve("");
       },
-      size: "compact",
-      appearance: "interaction-only",
+      size: "invisible",
     });
   });
 }
