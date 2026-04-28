@@ -7,7 +7,8 @@ import AnalyzeAnimation from "@/components/AnalyzeAnimation";
 import VerdictCard from "@/components/VerdictCard";
 import type { AnalysisResult, AppState } from "@/types";
 
-// Cloudflare Turnstile — invisible challenge
+// Cloudflare Turnstile — persistent widget, interaction-only.
+// Invisible when CF passes silently; pops up in the corner when CF demands interaction.
 const TURNSTILE_SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY || "0x4AAAAAACve0rOm6EAt0wdd";
 
 declare global {
@@ -18,47 +19,6 @@ declare global {
       remove: (widgetId: string) => void;
     };
   }
-}
-
-function getTurnstileToken(): Promise<string> {
-  return new Promise((resolve) => {
-    if (!window.turnstile) {
-      resolve(""); // Turnstile not loaded, skip (dev mode)
-      return;
-    }
-
-    // Timeout: if Turnstile doesn't respond in 10s, proceed without token
-    const timeout = setTimeout(() => {
-      try { window.turnstile?.remove(widgetId); } catch {}
-      container.remove();
-      resolve("");
-    }, 10_000);
-
-    const container = document.createElement("div");
-    container.style.display = "none";
-    document.body.appendChild(container);
-
-    const widgetId = window.turnstile.render(container, {
-      sitekey: TURNSTILE_SITE_KEY,
-      callback: (token: string) => {
-        clearTimeout(timeout);
-        window.turnstile?.remove(widgetId);
-        container.remove();
-        resolve(token);
-      },
-      "error-callback": () => {
-        clearTimeout(timeout);
-        container.remove();
-        resolve(""); // Graceful degradation — don't block the user
-      },
-      "expired-callback": () => {
-        clearTimeout(timeout);
-        container.remove();
-        resolve("");
-      },
-      size: "invisible",
-    });
-  });
 }
 
 function usePrefersReducedMotion() {
@@ -100,6 +60,9 @@ export default function Home() {
   const prefersReduced = usePrefersReducedMotion();
   const topRef = useRef<HTMLDivElement>(null);
   const animStartRef = useRef<number>(0);
+  const turnstileTokenRef = useRef<string>("");
+  const turnstileContainerRef = useRef<HTMLDivElement>(null);
+  const turnstileWidgetIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -110,6 +73,55 @@ export default function Home() {
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [state]);
+
+  useEffect(() => {
+    let cancelled = false;
+    let pollId: ReturnType<typeof setTimeout> | null = null;
+
+    const renderWidget = () => {
+      if (cancelled) return;
+      const container = turnstileContainerRef.current;
+      if (!window.turnstile || !container) {
+        pollId = setTimeout(renderWidget, 200);
+        return;
+      }
+      turnstileWidgetIdRef.current = window.turnstile.render(container, {
+        sitekey: TURNSTILE_SITE_KEY,
+        size: "compact",
+        appearance: "interaction-only",
+        callback: (token: string) => { turnstileTokenRef.current = token; },
+        "error-callback": () => { turnstileTokenRef.current = ""; },
+        "expired-callback": () => { turnstileTokenRef.current = ""; },
+      });
+    };
+
+    renderWidget();
+
+    return () => {
+      cancelled = true;
+      if (pollId) clearTimeout(pollId);
+      const id = turnstileWidgetIdRef.current;
+      if (id && window.turnstile) {
+        try { window.turnstile.remove(id); } catch {}
+      }
+    };
+  }, []);
+
+  const waitForTurnstileToken = useCallback(async (timeoutMs: number): Promise<string> => {
+    const start = Date.now();
+    while (!turnstileTokenRef.current && Date.now() - start < timeoutMs) {
+      await new Promise((r) => setTimeout(r, 200));
+    }
+    return turnstileTokenRef.current;
+  }, []);
+
+  const resetTurnstile = useCallback(() => {
+    const id = turnstileWidgetIdRef.current;
+    if (id && window.turnstile) {
+      try { window.turnstile.reset(id); } catch {}
+    }
+    turnstileTokenRef.current = "";
+  }, []);
 
   const analyzeScheme = useCallback(async (schemeText: string) => {
     if (!schemeText.trim()) return;
@@ -122,7 +134,7 @@ export default function Home() {
 
     try {
       const apiUrl = process.env.NEXT_PUBLIC_ANALYZE_URL || "/api/analyze";
-      const turnstileToken = await getTurnstileToken().catch(() => "");
+      const turnstileToken = await waitForTurnstileToken(10_000);
       const response = await fetch(apiUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -150,6 +162,9 @@ export default function Home() {
       const raw = await response.text();
       const data: AnalysisResult = JSON.parse(raw.trim());
 
+      // Tokens are single-use — reset the widget so the next analyze gets a fresh one.
+      resetTurnstile();
+
       if (data.verdict === "Not a Scheme") {
         setResult(data);
         setState("not-a-scheme");
@@ -164,7 +179,7 @@ export default function Home() {
       }
       setState("error");
     }
-  }, [prefersReduced]);
+  }, [prefersReduced, waitForTurnstileToken, resetTurnstile]);
 
   const handleAnalyze = useCallback(() => {
     analyzeScheme(scheme);
@@ -363,6 +378,13 @@ export default function Home() {
           built by @1nimit
         </a>
       </div>
+
+      {/* Turnstile — invisible until Cloudflare demands an interactive challenge,
+          then this container renders the checkbox widget the user has to solve. */}
+      <div
+        ref={turnstileContainerRef}
+        className="fixed bottom-4 right-4 z-50"
+      />
 
       {/* Toast */}
       <AnimatePresence>
